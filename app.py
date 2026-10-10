@@ -73,6 +73,15 @@ def determine_goals(tdee, goals_key):
         st.error("Invalid goals selected.")
         return None, None
 
+def calculate_macro_grams(calorie_intake, macro_ratio):
+    """Converts each macro's calorie allocation into grams."""
+    protein_ratio, carbohydrate_ratio, fat_ratio = macro_ratio
+    return (
+        calorie_intake * protein_ratio / 4,
+        calorie_intake * carbohydrate_ratio / 4,
+        calorie_intake * fat_ratio / 9,
+    )
+
 # Session state initialization
 if 'bmr' not in st.session_state:
     st.session_state.bmr = 0
@@ -81,69 +90,55 @@ if 'tdee' not in st.session_state:
 if 'goals' not in st.session_state:
     st.session_state.goals = (None, None)
 
-# Streamlit app Layout
-# 1. BMR title and desc
-st.title('Basal Metabolic Rate (BMR) Calculator')
-st.markdown("Enter your details below to estimate the number of calories your body burns at rest.")
-
-# 2. col layout for BMR user input
-col1, col2 = st.columns(2)
-with col1:
+# Input controls and calculation buttons
+with st.sidebar:
+    st.header('Your Inputs')
+    st.subheader('Personal Details')
     age = st.number_input('Age (years)', min_value=1, max_value=120, value=30)
-    height = st.number_input('Height (cm)', min_value=100, max_value=250, value=170)
-with col2:
     gender = st.radio('Gender', ['Male', 'Female'])
+    height = st.number_input('Height (cm)', min_value=100, max_value=250, value=170)
     weight = st.number_input('Weight (kg)', min_value=30.0, max_value=250.0, value=70.0)
 
-# 3. button to trigger BMR calc
-if st.button('Calculate BMR'):
-    st.session_state.bmr = calculate_bmr(age, gender, height, weight)
-    st.success("BMR calculation complete!")
+    if st.button('Calculate BMR', use_container_width=True):
+        st.session_state.bmr = calculate_bmr(age, gender, height, weight)
+        st.session_state.tdee = 0
+        st.session_state.goals = (None, None)
 
-# 4. display BMR result
-if st.session_state.bmr > 0:
-    st.subheader('Your Calculated BMR')
-    st.metric("Basal Metabolic Rate (BMR)", f"{st.session_state.bmr:,.0f} kcal")
-
-    st.markdown("---") # separator ---------------------------------------------
-
-    # 1. TDEE title and desc (visible after BMR is calculated)
-    st.title('Total Daily Energy Expenditure (TDEE) Calculator')
-    st.markdown("Select your activity level below to factor in total calories burned.")
-
-    # 2. radio button layout for activity level user input
-    activity_level = st.radio('Activity Level', list(ACTIVITY_FACTORS.keys()))
-
-    # 3. button to trigger TDEE calc
-    if st.button('Calculate TDEE'):
+    st.subheader('Activity')
+    activity_level = st.selectbox('Activity Level', list(ACTIVITY_FACTORS.keys()))
+    if st.button('Calculate TDEE', disabled=st.session_state.bmr <= 0, use_container_width=True):
         st.session_state.tdee = calculate_tdee(st.session_state.bmr, activity_level)
-        st.success("TDEE calculation complete!")
+        st.session_state.goals = (None, None)
 
-    # 4. display TDEE result
-    if st.session_state.tdee > 0:
-        st.subheader('Your Calculated TDEE')
-        st.metric("Total Daily Energy Expenditure (TDEE)", f"{st.session_state.tdee:,.0f} kcal")
+    st.subheader('Fitness Goal')
+    goals_key = st.selectbox('Goal', list(GOAL_FACTORS.keys()))
+    if st.button('Calculate Goals', disabled=st.session_state.tdee <= 0, use_container_width=True):
+        st.session_state.goals = determine_goals(st.session_state.tdee, goals_key)
 
-        st.markdown("---") # separator ---------------------------------------------
+# Results remain on the main page across Streamlit reruns.
+st.title('BMR & TDEE Calculator')
+st.markdown('Calculate your daily energy needs and macro targets.')
 
-        # 1. Goals title and desc (visible after TDEE is calculated)
-        st.title('Fitness Goals Calculator')
-        st.markdown('Select your fitness goal below to determine your daily calorie intake and macro ratio.')
+if st.session_state.bmr > 0:
+    st.subheader('Basal Metabolic Rate (BMR)')
+    st.metric('BMR', f"{st.session_state.bmr:,.0f} kcal")
 
-        # 2. radio button layout for fitness goal user input
-        goals_key = st.radio('Fitness Goal', list(GOAL_FACTORS.keys()))
+if st.session_state.tdee > 0:
+    st.subheader('Total Daily Energy Expenditure (TDEE)')
+    st.metric('TDEE', f"{st.session_state.tdee:,.0f} kcal")
 
-        # 3. button to trigger Goals calc
-        if st.button('Calculate Goals'):
-            st.session_state.goals = determine_goals(st.session_state.tdee, goals_key)
-            st.success("Goals calculation complete!")
+if st.session_state.goals[0] is not None:
+    calorie_goal, macro_ratio = st.session_state.goals
+    st.subheader('Daily Calorie and Macro Goals')
+    st.metric('Daily Calorie Intake', f'{calorie_goal:,.0f} kcal')
+    st.metric(
+        'Daily Macro Ratio (P:C:F)',
+        f'{int(macro_ratio[0] * 100)}% Protein, {int(macro_ratio[1] * 100)}% Carbohydrates, {int(macro_ratio[2] * 100)}% Fat',
+    )
 
-            # 4. display goals result
-            if st.session_state.goals[0] is not None:
-              st.subheader('Your Calculated Daily Calorie Intake and Macro Goals')
-
-              calorie_goal, macro_ratio = st.session_state.goals
-              st.metric("Daily Calorie Intake", f"{calorie_goal:,.0f} kcal")
-              st.metric("Daily Macro Ratio (P:C:F)",
-                        f"{int(macro_ratio[0]*100)}% Protein, {int(macro_ratio[1]*100)}% Carbohydrates, {int(macro_ratio[2]*100)}% Fat"
-                        )
+    protein_grams, carbohydrate_grams, fat_grams = calculate_macro_grams(calorie_goal, macro_ratio)
+    st.subheader('Daily Macronutrients')
+    macro_col1, macro_col2, macro_col3 = st.columns(3)
+    macro_col1.metric('Protein', f'{protein_grams:,.0f} g')
+    macro_col2.metric('Carbohydrates', f'{carbohydrate_grams:,.0f} g')
+    macro_col3.metric('Fat', f'{fat_grams:,.0f} g')
